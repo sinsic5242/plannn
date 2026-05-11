@@ -8,7 +8,7 @@ from vk_api import VkApi
 from vk_api.utils import get_random_id
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 
-# ========== НОВЫЕ ДАННЫЕ ==========
+# ========== ВАШИ ДАННЫЕ ==========
 VK_TOKEN = "vk1.a.EbSYpn3rfQTbNf38pAZZh4UBzo1AVAX8aL8lfpa9jRPgxS42rU_VSCcsYG3ZRBv6m4slxy6GWk8HxsNqoFwedcirLv8WpsGBt20-SlxN9MihjWLxubeuj3KwUTVA4T9guFs6FRArlUiS_7f7sbgr1OMa8KqKu4xsw4gw0xFCpAWt0bOPnH7cEMI_TkmNYrzzbORfKFqhGzRcDNRuHeq94Q"
 GROUP_ID = 238603745
 # ==================================
@@ -37,16 +37,16 @@ def send_message(vk, peer_id, text, keyboard=None):
 
 def get_main_keyboard():
     keyboard = VkKeyboard(one_time=False)
-    keyboard.add_button("📝 Add plan", color=VkKeyboardColor.POSITIVE)
-    keyboard.add_button("📋 My plans", color=VkKeyboardColor.PRIMARY)
+    keyboard.add_button("📝 Добавить план", color=VkKeyboardColor.POSITIVE)
+    keyboard.add_button("📋 Мои планы", color=VkKeyboardColor.PRIMARY)
     keyboard.add_line()
-    keyboard.add_button("🗑 Delete plan", color=VkKeyboardColor.SECONDARY)
-    keyboard.add_button("❓ Help", color=VkKeyboardColor.SECONDARY)
+    keyboard.add_button("🗑 Удалить план", color=VkKeyboardColor.SECONDARY)
+    keyboard.add_button("❓ Помощь", color=VkKeyboardColor.SECONDARY)
     return keyboard.get_keyboard()
 
 def get_cancel_keyboard():
     keyboard = VkKeyboard(one_time=True)
-    keyboard.add_button("❌ Cancel", color=VkKeyboardColor.NEGATIVE)
+    keyboard.add_button("❌ Отмена", color=VkKeyboardColor.NEGATIVE)
     return keyboard.get_keyboard()
 
 user_states = {}
@@ -78,11 +78,11 @@ def delete_plan(user_id, plan_id):
 
 def format_plans_list(plans_list):
     if not plans_list:
-        return "📭 You have no plans yet"
-    result = "📋 *Your plans:*\n\n"
+        return "📭 У вас пока нет планов"
+    result = "📋 *Ваши планы:*\n\n"
     for p in plans_list:
         result += f"🆔 {p['id']} | 📅 {p['date']} | ⏰ {p['time']}\n📌 {p['description']}\n\n"
-    result += "To delete: `delete ID`"
+    result += "Чтобы удалить: `удалить ID`"
     return result
 
 def check_reminders(vk):
@@ -94,27 +94,27 @@ def check_reminders(vk):
             for user_id, user_plans in plans.items():
                 for plan in user_plans:
                     if plan.get("date") == current_date and plan.get("time") == current_time:
-                        send_message(vk, int(user_id), f"🔔 *REMINDER!*\n\n{plan['description']}")
-                        print(f"Sent reminder to {user_id}: {plan['description']}")
+                        send_message(vk, int(user_id), f"🔔 *НАПОМИНАНИЕ!*\n\n{plan['description']}")
+                        print(f"Отправлено напоминание {user_id}: {plan['description']}")
             time.sleep(60)
         except Exception as e:
-            print(f"Reminder error: {e}")
+            print(f"Ошибка напоминаний: {e}")
             time.sleep(60)
 
-print("🤖 BOT STARTING...")
+print("🤖 ЗАПУСК БОТА")
 print("-" * 40)
 
 vk_session = VkApi(token=VK_TOKEN)
 vk = vk_session.get_api()
 
-print(f"✅ Bot connected to VK!")
-print(f"📌 Group ID: {GROUP_ID}")
-print("💬 Send any message to the community")
+print(f"✅ Бот подключен к ВК!")
+print(f"📌 ID группы: {GROUP_ID}")
+print("💬 Напишите любое сообщение в сообщество")
 print("=" * 50)
 
 reminder_thread = threading.Thread(target=check_reminders, args=(vk,), daemon=True)
 reminder_thread.start()
-print("✅ Reminder scheduler started!")
+print("✅ Планировщик напоминаний запущен!")
 
 while True:
     try:
@@ -132,54 +132,56 @@ while True:
             print(f"📨 {user_id}: {text[:50]}")
             
             if user_id in user_states:
-                if text == "❌ Cancel" or text.lower() == "cancel":
+                if text == "❌ Отмена" or text.lower() == "отмена" or text.lower() == "cancel":
                     del user_states[user_id]
-                    send_message(vk, peer_id, "❌ Cancelled", get_main_keyboard())
+                    send_message(vk, peer_id, "❌ Создание плана отменено", get_main_keyboard())
                 elif user_states[user_id]["step"] == "waiting_date":
                     user_states[user_id]["date"] = text
                     user_states[user_id]["step"] = "waiting_time"
-                    send_message(vk, peer_id, "Enter time (HH:MM):", get_cancel_keyboard())
+                    send_message(vk, peer_id, "⏰ Введите время (ЧЧ:ММ):", get_cancel_keyboard())
                 elif user_states[user_id]["step"] == "waiting_time":
                     user_states[user_id]["time"] = text
                     user_states[user_id]["step"] = "waiting_desc"
-                    send_message(vk, peer_id, "Enter description:", get_cancel_keyboard())
+                    send_message(vk, peer_id, "📝 Введите описание:", get_cancel_keyboard())
                 elif user_states[user_id]["step"] == "waiting_desc":
                     add_plan(user_id, user_states[user_id]["date"], user_states[user_id]["time"], text)
                     del user_states[user_id]
-                    send_message(vk, peer_id, "✅ Plan added!", get_main_keyboard())
+                    send_message(vk, peer_id, "✅ План добавлен!", get_main_keyboard())
                 continue
             
-            if text.lower() in ["add plan", "add", "📝 add plan"]:
+            if text.lower() in ["добавить план", "добавить", "📝 добавить план", "add plan", "add"]:
                 user_states[user_id] = {"step": "waiting_date"}
-                send_message(vk, peer_id, "✏️ Enter date (YYYY-MM-DD):", get_cancel_keyboard())
-            elif text.lower() in ["my plans", "plans", "list", "📋 my plans"]:
+                send_message(vk, peer_id, "📅 Введите дату (ГГГГ-ММ-ДД):", get_cancel_keyboard())
+            elif text.lower() in ["мои планы", "планы", "список", "📋 мои планы", "my plans", "plans", "list"]:
                 send_message(vk, peer_id, format_plans_list(get_user_plans(user_id)), get_main_keyboard())
-            elif text.lower().startswith("delete"):
+            elif text.lower().startswith("удалить") or text.lower().startswith("delete"):
                 parts = text.split()
                 if len(parts) == 2 and parts[1].isdigit():
                     if delete_plan(user_id, int(parts[1])):
-                        send_message(vk, peer_id, "✅ Plan deleted!", get_main_keyboard())
+                        send_message(vk, peer_id, "✅ План удалён!", get_main_keyboard())
                     else:
-                        send_message(vk, peer_id, "❌ Plan not found", get_main_keyboard())
+                        send_message(vk, peer_id, "❌ План не найден", get_main_keyboard())
                 else:
-                    send_message(vk, peer_id, "❌ Send: `delete ID` (e.g., delete 3)", get_main_keyboard())
-            elif text.lower() in ["help", "start", "❓ help"]:
-                help_text = """🤖 *Planner Bot Commands*
+                    send_message(vk, peer_id, "❌ Отправьте: `удалить ID` (например: удалить 3)", get_main_keyboard())
+            elif text.lower() in ["помощь", "help", "start", "❓ помощь"]:
+                help_text = """🤖 *Команды бота-планировщика*
 
-📝 *Add plan* — create a new task
-📋 *My plans* — view all tasks
-🗑 *delete ID* — delete a task
-❓ *Help* — show this message
+📝 *Добавить план* — создать новую задачу
+📋 *Мои планы* — посмотреть все задачи
+🗑 *удалить ID* — удалить задачу (например: удалить 3)
+❓ *Помощь* — показать это сообщение
 
-*Example:*
-1. Add plan
+*Пример создания плана:*
+1. Добавить план
 2. 2025-05-15
 3. 18:00
-4. Gym"""
+4. Пойти в зал
+
+🔔 Бот напомнит в указанное время!"""
                 send_message(vk, peer_id, help_text, get_main_keyboard())
             else:
-                send_message(vk, peer_id, "👋 Send *Help* for commands", get_main_keyboard())
+                send_message(vk, peer_id, "👋 Напишите *Помощь* для списка команд", get_main_keyboard())
         time.sleep(2)
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Ошибка: {e}")
         time.sleep(5)
