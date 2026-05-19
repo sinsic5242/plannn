@@ -3,7 +3,7 @@ import json
 import os
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from vk_api import VkApi
 from vk_api.utils import get_random_id
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
@@ -49,17 +49,40 @@ def get_cancel_keyboard():
     keyboard.add_button("❌ Отмена", color=VkKeyboardColor.NEGATIVE)
     return keyboard.get_keyboard()
 
+def get_reminder_keyboard():
+    """Клавиатура для выбора времени напоминания"""
+    keyboard = VkKeyboard(one_time=True)
+    keyboard.add_button("⏰ За 30 минут", color=VkKeyboardColor.PRIMARY)
+    keyboard.add_button("⏰ За 1 час", color=VkKeyboardColor.PRIMARY)
+    keyboard.add_button("⏰ За 2 часа", color=VkKeyboardColor.PRIMARY)
+    keyboard.add_line()
+    keyboard.add_button("❌ Отмена", color=VkKeyboardColor.NEGATIVE)
+    return keyboard.get_keyboard()
+
 user_states = {}
 
-def add_plan(user_id, target_date, time_str, description):
+def add_plan(user_id, target_date, time_str, description, reminder_minutes):
     if str(user_id) not in plans:
         plans[str(user_id)] = []
     new_id = len(plans[str(user_id)]) + 1
+    
+    # Вычисляем время напоминания
+    reminder_time = None
+    if reminder_minutes > 0:
+        try:
+            plan_datetime = datetime.strptime(f"{target_date} {time_str}", "%Y-%m-%d %H:%M")
+            reminder_time = (plan_datetime - timedelta(minutes=reminder_minutes)).strftime("%Y-%m-%d %H:%M")
+        except:
+            reminder_time = None
+    
     plan = {
         "id": new_id,
         "date": target_date,
         "time": time_str,
         "description": description,
+        "reminder_minutes": reminder_minutes,
+        "reminder_time": reminder_time,
+        "reminder_sent": False,
         "created": datetime.now().isoformat()
     }
     plans[str(user_id)].append(plan)
@@ -76,26 +99,59 @@ def delete_plan(user_id, plan_id):
         return True
     return False
 
+def format_reminder_text(minutes):
+    if minutes == 30:
+        return "⏰ За 30 минут"
+    elif minutes == 60:
+        return "⏰ За 1 час"
+    elif minutes == 120:
+        return "⏰ За 2 часа"
+    return "Без напоминания"
+
 def format_plans_list(plans_list):
     if not plans_list:
         return "📭 У вас пока нет планов"
     result = "📋 *Ваши планы:*\n\n"
     for p in plans_list:
-        result += f"🆔 {p['id']} | 📅 {p['date']} | ⏰ {p['time']}\n📌 {p['description']}\n\n"
+        reminder_text = format_reminder_text(p.get("reminder_minutes", 0))
+        result += f"🆔 {p['id']} | 📅 {p['date']} | ⏰ {p['time']}\n📌 {p['description']}\n🔔 {reminder_text}\n\n"
     result += "Чтобы удалить: `удалить ID`"
     return result
 
 def check_reminders(vk):
+    """Проверка и отправка напоминаний"""
     while True:
         try:
             now = datetime.now()
-            current_date = now.strftime("%Y-%m-%d")
-            current_time = now.strftime("%H:%M")
+            current_datetime = now.strftime("%Y-%m-%d %H:%M")
+            
             for user_id, user_plans in plans.items():
                 for plan in user_plans:
-                    if plan.get("date") == current_date and plan.get("time") == current_time:
-                        send_message(vk, int(user_id), f"🔔 *НАПОМИНАНИЕ!*\n\n{plan['description']}")
-                        print(f"Отправлено напоминание {user_id}: {plan['description']}")
+                    # Проверяем основное событие
+                    plan_datetime = f"{plan.get('date')} {plan.get('time')}"
+                    if plan_datetime == current_datetime:
+                        send_message(vk, int(user_id), f"🔔 *СОБЫТИЕ!*\n\n{plan['description']}")
+                        print(f"Отправлено уведомление о событии {user_id}: {plan['description']}")
+                    
+                    # Проверяем напоминание
+                    reminder_time = plan.get("reminder_time")
+                    reminder_sent = plan.get("reminder_sent", False)
+                    if reminder_time and not reminder_sent and reminder_time == current_datetime:
+                        minutes = plan.get("reminder_minutes", 0)
+                        if minutes == 30:
+                            time_text = "Через 30 минут"
+                        elif minutes == 60:
+                            time_text = "Через 1 час"
+                        elif minutes == 120:
+                            time_text = "Через 2 часа"
+                        else:
+                            time_text = "Скоро"
+                        
+                        send_message(vk, int(user_id), f"🔔 *НАПОМИНАНИЕ!*\n\n{time_text} у вас:\n📌 {plan['description']}")
+                        plan["reminder_sent"] = True
+                        save_plans()
+                        print(f"Отправлено напоминание {user_id}: {plan['description']} ({time_text})")
+            
             time.sleep(60)
         except Exception as e:
             print(f"Ошибка напоминаний: {e}")
@@ -132,28 +188,78 @@ while True:
             print(f"📨 {user_id}: {text[:50]}")
             
             if user_id in user_states:
-                if text == "❌ Отмена" or text.lower() == "отмена" or text.lower() == "cancel":
+                state = user_states[user_id]
+                
+                if text == "❌ Отмена" or text.lower() == "отмена":
                     del user_states[user_id]
                     send_message(vk, peer_id, "❌ Создание плана отменено", get_main_keyboard())
-                elif user_states[user_id]["step"] == "waiting_date":
-                    user_states[user_id]["date"] = text
-                    user_states[user_id]["step"] = "waiting_time"
-                    send_message(vk, peer_id, "⏰ Введите время (ЧЧ:ММ):", get_cancel_keyboard())
-                elif user_states[user_id]["step"] == "waiting_time":
-                    user_states[user_id]["time"] = text
-                    user_states[user_id]["step"] = "waiting_desc"
+                
+                elif state["step"] == "waiting_date":
+                    # Проверка формата даты
+                    try:
+                        datetime.strptime(text, "%Y-%m-%d")
+                        state["date"] = text
+                        state["step"] = "waiting_time"
+                        send_message(vk, peer_id, "⏰ Введите время (ЧЧ:ММ):", get_cancel_keyboard())
+                    except ValueError:
+                        send_message(vk, peer_id, "❌ Неверный формат даты. Введите дату в формате ГГГГ-ММ-ДД (например: 2025-05-20)", get_cancel_keyboard())
+                
+                elif state["step"] == "waiting_time":
+                    # Проверка формата времени
+                    try:
+                        datetime.strptime(text, "%H:%M")
+                        state["time"] = text
+                        state["step"] = "waiting_reminder"
+                        send_message(vk, peer_id, "🔔 Выберите когда напомнить:", get_reminder_keyboard())
+                    except ValueError:
+                        send_message(vk, peer_id, "❌ Неверный формат времени. Введите время в формате ЧЧ:ММ (например: 18:00)", get_cancel_keyboard())
+                
+                elif state["step"] == "waiting_reminder":
+                    reminder_minutes = 0
+                    if text == "⏰ За 30 минут":
+                        reminder_minutes = 30
+                    elif text == "⏰ За 1 час":
+                        reminder_minutes = 60
+                    elif text == "⏰ За 2 часа":
+                        reminder_minutes = 120
+                    else:
+                        send_message(vk, peer_id, "❌ Пожалуйста, выберите вариант из меню", get_reminder_keyboard())
+                        continue
+                    
+                    state["reminder_minutes"] = reminder_minutes
+                    state["step"] = "waiting_desc"
                     send_message(vk, peer_id, "📝 Введите описание:", get_cancel_keyboard())
-                elif user_states[user_id]["step"] == "waiting_desc":
-                    add_plan(user_id, user_states[user_id]["date"], user_states[user_id]["time"], text)
+                
+                elif state["step"] == "waiting_desc":
+                    add_plan(
+                        user_id, 
+                        state["date"], 
+                        state["time"], 
+                        text, 
+                        state["reminder_minutes"]
+                    )
                     del user_states[user_id]
-                    send_message(vk, peer_id, "✅ План добавлен!", get_main_keyboard())
+                    
+                    reminder_text = format_reminder_text(state["reminder_minutes"])
+                    send_message(vk, peer_id, 
+                        f"✅ *План добавлен!*\n\n"
+                        f"📅 Дата: {state['date']}\n"
+                        f"⏰ Время: {state['time']}\n"
+                        f"📌 Описание: {text}\n"
+                        f"🔔 Напоминание: {reminder_text}\n\n"
+                        f"Я напомню вам вовремя!",
+                        get_main_keyboard())
                 continue
             
+            # Основные команды
             if text.lower() in ["добавить план", "добавить", "📝 добавить план", "add plan", "add"]:
                 user_states[user_id] = {"step": "waiting_date"}
-                send_message(vk, peer_id, "📅 Введите дату (ГГГГ-ММ-ДД):", get_cancel_keyboard())
+                send_message(vk, peer_id, "📅 Введите дату в формате ГГГГ-ММ-ДД (например: 2025-05-20):", get_cancel_keyboard())
+            
             elif text.lower() in ["мои планы", "планы", "список", "📋 мои планы", "my plans", "plans", "list"]:
-                send_message(vk, peer_id, format_plans_list(get_user_plans(user_id)), get_main_keyboard())
+                user_plans = get_user_plans(user_id)
+                send_message(vk, peer_id, format_plans_list(user_plans), get_main_keyboard())
+            
             elif text.lower().startswith("удалить") or text.lower().startswith("delete"):
                 parts = text.split()
                 if len(parts) == 2 and parts[1].isdigit():
@@ -163,6 +269,7 @@ while True:
                         send_message(vk, peer_id, "❌ План не найден", get_main_keyboard())
                 else:
                     send_message(vk, peer_id, "❌ Отправьте: `удалить ID` (например: удалить 3)", get_main_keyboard())
+            
             elif text.lower() in ["помощь", "help", "start", "❓ помощь"]:
                 help_text = """🤖 *Команды бота-планировщика*
 
@@ -173,14 +280,17 @@ while True:
 
 *Пример создания плана:*
 1. Добавить план
-2. 2025-05-15
+2. 2025-05-20
 3. 18:00
-4. Пойти в зал
+4. Выберите когда напомнить
+5. Пойти в зал
 
-🔔 Бот напомнит в указанное время!"""
+🔔 Бот напомнит за выбранное время ДО события и в момент события!"""
                 send_message(vk, peer_id, help_text, get_main_keyboard())
+            
             else:
                 send_message(vk, peer_id, "👋 Напишите *Помощь* для списка команд", get_main_keyboard())
+        
         time.sleep(2)
     except Exception as e:
         print(f"❌ Ошибка: {e}")
